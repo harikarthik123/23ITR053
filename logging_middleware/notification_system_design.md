@@ -39,6 +39,27 @@ response example:
   "status": "queued"
 }
 
+postman usage:
+POST http://localhost:4000/api/v1/notifications
+headers:
+Content-Type: application/json
+body raw JSON:
+{
+  "title": "Placement Drive Open",
+  "message": "A new placement drive by Acme Corp is now open for CS students.",
+  "category": "placements",
+  "priority": "high",
+  "recipients": ["student:123"]
+}
+
+for group notifications use recipients like ["batch:2026"], ["department:cs"], or ["all"]
+
+broadcast endpoint:
+POST http://localhost:4000/api/v1/notifications/broadcast
+
+sse realtime stream:
+GET http://localhost:4000/api/v1/notifications/stream?userId={studentId}
+
 logging middleware:
 use log(stack, level, package, message)
 example:
@@ -57,3 +78,4 @@ student sees placement, event, result updates
 student marks notifications read
 real time push delivers urgent placement and result updates
 subscription management lets students opt into topics
+ stage 2 and 3___
