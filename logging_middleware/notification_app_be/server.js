@@ -8,11 +8,34 @@ const port = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    log('api.notification', 'error', 'notification-service', `invalid JSON payload: ${err.message}`);
+    return res.status(400).json({ error: 'Invalid JSON payload' });
+  }
+  next(err);
+});
+
 const notifications = [];
 const subscriptions = [];
+const sseClients = [];
 
 function generateId(prefix) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function sendSse(client, event, data) {
+  client.res.write(`event: ${event}\n`);
+  client.res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function broadcastNotificationEvent(notification) {
+  sseClients.forEach((client) => {
+    if (notification.recipients.includes(`student:${client.userId}`) || notification.recipients.includes('all')) {
+      sendSse(client, 'notification', notification);
+      log('realtime.socket', 'info', 'notification-service', `sent SSE notification ${notification.notificationId} to student:${client.userId}`);
+    }
+  });
 }
 
 app.get('/api/v1/notifications', (req, res) => {
@@ -31,6 +54,33 @@ app.get('/api/v1/notifications', (req, res) => {
 
   log('service.notification', 'debug', 'notification-service', `returning ${paged.length} notifications for userId=${userId}`);
   res.json({ items: paged, page: Number(page), pageSize: Number(pageSize), total: items.length });
+});
+
+app.get('/api/v1/notifications/stream', (req, res) => {
+  const { userId } = req.query;
+  if (!userId) {
+    return res.status(400).json({ error: 'userId is required for SSE stream' });
+  }
+
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  res.flushHeaders();
+  res.write('\n');
+
+  const client = { userId, res };
+  sseClients.push(client);
+  log('realtime.socket', 'info', 'notification-service', `SSE client connected for userId=${userId} totalClients=${sseClients.length}`);
+
+  req.on('close', () => {
+    const index = sseClients.indexOf(client);
+    if (index !== -1) {
+      sseClients.splice(index, 1);
+      log('realtime.socket', 'info', 'notification-service', `SSE client disconnected userId=${userId} totalClients=${sseClients.length}`);
+    }
+  });
 });
 
 app.post('/api/v1/notifications', (req, res) => {
@@ -57,6 +107,7 @@ app.post('/api/v1/notifications', (req, res) => {
   };
 
   notifications.push(notification);
+  broadcastNotificationEvent(notification);
   log('service.notification', 'info', 'notification-service', `queued notification ${notification.notificationId} for recipients=${notification.recipients.length}`);
   res.status(201).json({ notificationId: notification.notificationId, createdAt: notification.createdAt, status: 'queued' });
 });
@@ -153,6 +204,7 @@ app.post('/api/v1/notifications/broadcast', (req, res) => {
   };
 
   notifications.push(notification);
+  broadcastNotificationEvent(notification);
   log('service.notification', 'info', 'notification-service', `broadcast queued ${notification.notificationId} recipients=${notification.recipients.length}`);
   res.status(201).json({ broadcastId: notification.notificationId, status: 'sent' });
 });
