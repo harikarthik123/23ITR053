@@ -102,4 +102,4 @@ connectBtn.addEventListener('click', () => {
 refreshBtn.addEventListener('click', fetchNotifications);
 
 setStatus('Ready. Enter student ID and click Connect.');
-//last line of app.js
+//last line 
